@@ -1,0 +1,547 @@
+diff --git a/app.html b/app.html
+new file mode 100644
+index 0000000..b63d42b
+--- /dev/null
++++ b/app.html
+@@ -0,0 +1,34 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++  <meta charset="UTF-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
++  <title>LifeLink</title>
++  <meta name="theme-color" content="#F5F8F6">
++  <script>try { var q = new URLSearchParams(location.search); if (q.get('off') === '1') { localStorage.removeItem('ll-shell'); location.replace('home.html'); } else { localStorage.setItem('ll-shell', '1'); } } catch (e) {}</script>
++  <script src="ll-theme-init.js"></script>
++  <link rel="preconnect" href="https://fonts.googleapis.com">
++  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
++  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
++  <link rel="stylesheet" href="ll-app.css">
++  <style>
++    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ll-bg, #F5F8F6); }
++    #llFrames { position: fixed; left: 0; right: 0; top: var(--ll-safe-t, 0px); bottom: var(--sh-tab, 64px); }
++    .sh-f { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--ll-bg, #F5F8F6); visibility: hidden; pointer-events: none; }
++    .sh-f.on { visibility: visible; pointer-events: auto; }
++    .sh-over { z-index: 5; visibility: visible; transform: translateX(100%); transition: transform .22s ease; box-shadow: -8px 0 24px rgba(0,0,0,.12); }
++    .sh-over.on { transform: none; }
++    @media (prefers-reduced-motion: reduce) { .sh-over { transition: none; } }
++  </style>
++</head>
++<body data-ll-page="shell" data-ll-role="customer" data-ll-strip>
++  <div id="llFrames"></div>
++  <script src="supabase-config.js"></script>
++  <script src="supabase-client.js"></script>
++  <script src="supabase-auth.js"></script>
++  <script src="ll-api.js"></script>
++  <script src="lifelink.js"></script>
++  <script src="ll-shell.js"></script>
++  <script src="ll-app.js" defer></script>
++</body>
++</html>
+diff --git a/lifelink.js b/lifelink.js
+index 47015d4..3dd8170 100644
+--- a/lifelink.js
++++ b/lifelink.js
+@@ -44,7 +44,19 @@
+ 
+   var LL = (window.LL = {
+     q: function (k) { return new URLSearchParams(location.search).get(k); },
+-    go: function (url) { try { document.body.classList.add('ll-leaving'); } catch (e) {} setTimeout(function () { location.href = url; }, 120); },
++    go: function (url) { try { document.body.classList.add('ll-leaving'); } catch (e) {} setTimeout(function () { LL.nav(url); }, 120); },
++    // In-app jump. Inside the app shell: tab pages switch tabs, other screens slide over the tab, sign-in / other roles leave the shell.
++    nav: function (url) {
++      try {
++        var sh = window.LLShell || (window.parent !== window && window.parent.LLShell);
++        if (sh) {
++          if (sh.isTab(url)) { sh.show(url); return; }
++          if (window.name !== 'llover' && sh.push && sh.push(url)) return;
++          if (sh.isExit(url)) { window.parent.location.href = url; return; }
++        }
++      } catch (e) {}
++      location.href = url;
++    },
+     esc: function (s) {
+       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+@@ -206,8 +218,13 @@
+     },
+     home: function (role) {
+       if (role === 'admin') return 'admin.html';
+-      if (role === 'provider') return 'provider-dashboard.html';
+-      return LL.appLike() ? 'home.html' : 'dashboard.html';
++      if (role === 'provider') {
++        try { if (LL.appLike() && localStorage.getItem('ll-shell-p') === '1') return 'provider-app.html'; } catch (e) {}   // opt-in: set by opening provider-app.html, cleared by provider-app.html?off=1
++        return 'provider-dashboard.html';
++      }
++      if (!LL.appLike()) return 'dashboard.html';
++      try { if (localStorage.getItem('ll-shell') === '1') return 'app.html'; } catch (e) {}   // opt-in: set by opening app.html, cleared by app.html?off=1
++      return 'home.html';
+     },
+     me: null,        // { id, role, name, email, profile } once known
+     _waiters: [],
+@@ -222,7 +239,7 @@
+     },
+     signOut: function () {
+       try { LL.cache.clear(); } catch (e) {}
+-      var done = function () { location.href = 'index.html'; };
++      var done = function () { LL.nav('index.html'); };
+       if (window.LLAuth && window.LLAuth.signOut) window.LLAuth.signOut().then(done, done); else done();
+     },
+     _resolveAuth: function (profile, user) {
+diff --git a/ll-app.js b/ll-app.js
+index c52da73..e5edc45 100644
+--- a/ll-app.js
++++ b/ll-app.js
+@@ -6,10 +6,14 @@
+   var HIDE = { signin: 1, admin: 1, welcome: 1, 'add-phone': 1, 'complete-profile': 1 };
+   var cap = window.Capacitor, NATIVE = !!(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
+   if (NATIVE) document.documentElement.classList.add('ll-native');
++  var FRAMED = false; try { FRAMED = window.parent !== window && !!window.parent.LLShell; } catch (e) {}   // this page is a tab inside app.html: the shell owns the tab bar, theme button and native plugins
++  if (FRAMED) document.documentElement.classList.add('ll-framed');
++  if (FRAMED) { try { var hb = History.prototype.back; try { Object.defineProperty(window.history, 'length', { get: function () { return 2; } }); } catch (e) {}
++    window.history.back = function () { try { if (window.parent.LLShell.popFrom(window)) return; } catch (e) {} hb.call(window.history); }; } catch (e) {} }   // a back press must never leave the shell
+   function plug(n) { return NATIVE && cap.Plugins && cap.Plugins[n] ? cap.Plugins[n] : null; }
+-  if (NATIVE && !window.LLOAuth) { try { var os = document.createElement('script'); os.src = 'll-oauth.js'; os.defer = true; document.head.appendChild(os); } catch (e) {} }   // catches the Google sign-in return link (Android app only)
+-  if (NATIVE) { try { var ps = document.createElement('script'); ps.src = 'll-push.js'; ps.defer = true; document.head.appendChild(ps); } catch (e) {} }   // push notifications (Android app only)
+-  if (NATIVE) { try { var us = document.createElement('script'); us.src = 'll-update.js'; us.defer = true; document.head.appendChild(us); } catch (e) {} }   // update prompt (Android app only)
++  if (NATIVE && !FRAMED && !window.LLOAuth) { try { var os = document.createElement('script'); os.src = 'll-oauth.js'; os.defer = true; document.head.appendChild(os); } catch (e) {} }   // catches the Google sign-in return link (Android app only)
++  if (NATIVE && !FRAMED) { try { var ps = document.createElement('script'); ps.src = 'll-push.js'; ps.defer = true; document.head.appendChild(ps); } catch (e) {} }   // push notifications (Android app only)
++  if (NATIVE && !FRAMED) { try { var us = document.createElement('script'); us.src = 'll-update.js'; us.defer = true; document.head.appendChild(us); } catch (e) {} }   // update prompt (Android app only)
+ 
+   /* ---------------- theme ---------------- */
+   var mq = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+@@ -173,6 +177,7 @@
+     if (app && app.addListener) {
+       var roots = { 'index.html': 1, 'home.html': 1, 'dashboard.html': 1, 'provider-dashboard.html': 1, 'welcome.html': 1, 'admin.html': 1 };
+       app.addListener('backButton', function () {
++        if (window.LLShell && LLShell.back && LLShell.back()) return;
+         var sheet = document.querySelector('.ll-sheet-wrap.open');
+         if (sheet) { sheet.classList.remove('open'); return; }
+         var fs = document.querySelector('.dc-sheet.open'); if (fs) { fs.classList.remove('open'); document.body.style.overflow = ''; return; }
+@@ -186,6 +191,7 @@
+ 
+   /* ---------------- fluid navigation (no full reload between dashboard sections) ---------------- */
+   window.LLTabs = { refresh: function () {   // re-mark the active tab for the current address
++    if (FRAMED) { try { window.parent.LLShell.sync(); } catch (e) {} return; }
+     if (!curTabs || !curNav) return;
+     var file = location.pathname.split('/').pop() || 'index.html', section = new URLSearchParams(location.search).get('section') || '';
+     var els = curNav.children;
+@@ -195,6 +201,18 @@
+     }
+   } };
+   window.LLApp.syncQuick = quickActions;
++  // Inside the shell, links to another tab page switch tabs instead of reloading this frame.
++  if (FRAMED) document.addEventListener('click', function (e) {
++    if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
++    var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
++    if (!a || a.target || a.hasAttribute('download')) return;
++    var sh = window.parent && window.parent.LLShell, u; if (!sh) return;
++    try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
++    if (u.origin !== location.origin) return;
++    var cur = location.pathname.split('/').pop() || '', f = u.pathname.split('/').pop();
++    if (sh.isTab(u.href)) { if (f === cur) return; e.preventDefault(); sh.show(u.href); return; }
++    if (window.name !== 'llover' && sh.push && sh.push(u.href)) e.preventDefault();   // other screens slide over the tab instead of replacing it
++  }, true);
+   // While you are on dashboard.html, any link to another dashboard section switches in place (page-dashboard.js owns LLDash).
+   document.addEventListener('click', function (e) {
+     if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+@@ -229,6 +247,10 @@
+   }
+ 
+   function init(retries) {
++    if (FRAMED) {   // a tab inside the shell: only the page's own quick actions, nothing global
++      if (!window.LL || !LL.whenAuth) { if (retries > 0) setTimeout(function () { init(retries - 1); }, 150); return; }
++      LL.whenAuth(function (p) { if (p) quickActions(p.role); }); return;
++    }
+     mountThemeFab();
+     if (!window.LL || !LL.whenAuth) { if (retries > 0) return setTimeout(function () { init(retries - 1); }, 150); mountTabs(null); return nativeGlue(null); }
+     LL.whenAuth(function (p) { mountTabs(p); if (p) { quickActions(p.role); unreadBadge(p); } nativeGlue(p); });
+diff --git a/ll-shell.js b/ll-shell.js
+new file mode 100644
+index 0000000..3d50fac
+--- /dev/null
++++ b/ll-shell.js
+@@ -0,0 +1,161 @@
++/* LifeLink app shell (customer: app.html, provider: provider-app.html). Keeps the main tabs alive in frames, so tapping
++   a tab just shows the one already loaded: no reload, no waiting, and each tab keeps its place. Other screens slide
++   over the current tab. UI only: the pages inside run exactly as before; this file never touches Supabase, payments,
++   maps or push. */
++(function () {
++  'use strict';
++  var ROLE = document.body.getAttribute('data-ll-role') === 'provider' ? 'provider' : 'customer';
++  var CFG = ROLE === 'provider' ? {
++    home: 'pdash', dash: 'pdash', api: 'LLPDash', homeHref: 'provider-dashboard.html',
++    files: { 'provider-dashboard.html': 'pdash', 'provider-request.html': 'preq' },
++    urls: { pdash: 'provider-dashboard.html', preq: 'provider-request.html' },
++    exit: /^(signin|index|welcome|admin|app|provider-app|home|dashboard|profile)\.html$/i,
++    warm: [['preq', 900]]
++  } : {
++    home: 'home', dash: 'dash', api: 'LLDash', homeHref: 'home.html',
++    files: { 'home.html': 'home', 'dashboard.html': 'dash', 'profile.html': 'prof' },
++    urls: { home: 'home.html', dash: 'dashboard.html?section=bookings', prof: 'profile.html' },
++    exit: /^(signin|index|welcome|admin|app|provider-app|provider-[a-z-]+)\.html$/i,
++    warm: [['prof', 600], ['dash', 2400]]
++  };
++  var KEY = CFG.files, host = document.getElementById('llFrames'), frames = {}, active = CFG.home;
++  var over = null, depth = 0, popping = false, PB = History.prototype.back;
++  // provider sections that live under another tab in the tab bar
++  var SEC_TAB = { quotes: 'bookings', wallet: 'profile', services: 'profile', reviews: 'profile' };
++
++  function file(href) { try { var u = new URL(href, location.href); return u.origin === location.origin ? u.pathname.split('/').pop() : ''; } catch (e) { return ''; } }
++  function parse(href) {
++    var u; try { u = new URL(href, location.href); } catch (e) { return null; }
++    if (u.origin !== location.origin) return null;
++    var f = u.pathname.split('/').pop(), key = KEY[f]; if (!key) return null;
++    if (key === CFG.dash && (ROLE === 'provider' || f === 'dashboard.html')) {
++      var sec = new URLSearchParams(u.search).get('section') || '';
++      if (ROLE === 'customer' && (!sec || sec === 'overview')) return { key: 'home', file: 'home.html', search: '' };
++      return { key: key, file: f, search: '?section=' + (sec || 'overview'), full: u.search };
++    }
++    return { key: key, file: f, search: '' };
++  }
++  function ensure(key, url) {
++    var f = frames[key];
++    if (!f) {
++      f = document.createElement('iframe'); f.className = 'sh-f'; f.name = 'llTab'; f.title = key; f.src = url;
++      f.setAttribute('allow', 'geolocation; clipboard-write; camera; microphone');
++      f.addEventListener('load', function () { copyTheme(f); });
++      host.appendChild(f); frames[key] = f;
++    }
++    return f;
++  }
++  function curFile(f) { try { return f.contentWindow.location.pathname.split('/').pop(); } catch (e) { return ''; } }
++  function dashSearch() { try { var w = frames[CFG.dash] && frames[CFG.dash].contentWindow; return w ? new URLSearchParams(w.location.search) : null; } catch (e) { return null; } }
++  function activate(key) {
++    active = key;
++    Object.keys(frames).forEach(function (k) { frames[k].classList.toggle('on', k === key); });
++    sync();
++  }
++
++  /* Other screens (book a service, find providers, tracking, payment, settings...) slide over the current tab.
++     The tab underneath is never reloaded, so closing the screen drops you back exactly where you were. */
++  function closeOver() {
++    if (!over) return false;
++    var el = over; over = null; depth = 0; el.classList.remove('on');
++    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 260);
++    return true;
++  }
++  function push(href) {
++    var u; try { u = new URL(href, location.href); } catch (e) { return false; }
++    var f = u.pathname.split('/').pop();
++    if (u.origin !== location.origin || !/^[a-z0-9_-]+\.html$/i.test(f) || KEY[f] || CFG.exit.test(f)) return false;
++    if (over) { over.src = u.href; return true; }
++    var el = document.createElement('iframe'); el.className = 'sh-f sh-over'; el.name = 'llover'; el.title = 'screen';
++    el.setAttribute('allow', 'geolocation; clipboard-write; camera; microphone');
++    el.addEventListener('load', function () { if (el !== over) return; if (popping) { popping = false; depth = Math.max(1, depth - 1); } else depth++; copyTheme(el); });
++    el.src = u.href; host.appendChild(el); over = el; depth = 0;
++    requestAnimationFrame(function () { requestAnimationFrame(function () { el.classList.add('on'); }); });
++    return true;
++  }
++  function popOver() {
++    if (over && depth > 1) { popping = true; try { PB.call(over.contentWindow.history); } catch (e) { popping = false; closeOver(); } return true; }
++    return closeOver();
++  }
++  function popFrom(win) {   // called by history.back() inside any frame
++    if (over && over.contentWindow === win) return popOver();
++    var f = frames[active];
++    if (f && f.contentWindow === win) {
++      if (curFile(f) && !KEY[curFile(f)]) { try { PB.call(win.history); } catch (e) {} return true; }
++      back(); return true;
++    }
++    try { PB.call(win.history); } catch (e) {}
++    return true;
++  }
++  function show(href) {
++    var t = parse(href); if (!t) return false;
++    closeOver();
++    var f = frames[t.key];
++    if (t.key === CFG.dash && t.search) {
++      var w = f && f.contentWindow, api = w && w[CFG.api], q = ROLE === 'provider' ? (t.full || '') : t.search;
++      if (ROLE === 'provider' && !t.full) q = '?section=overview';
++      if (f && api && api.ready) { try { api.go(q); } catch (e) { f.src = t.file + q; } }
++      else if (f) f.src = t.file + q;
++      else ensure(t.key, t.file + q);
++    } else {
++      f = ensure(t.key, CFG.urls[t.key]);
++      var cf = curFile(f); if (cf && cf !== t.file) f.src = CFG.urls[t.key];   // tapping a tab while deep inside it returns to its first screen
++    }
++    activate(t.key); return true;
++  }
++  function sync() {
++    var nav = document.querySelector('.ll-tabbar'); if (!nav) return;
++    var sp = dashSearch(), ds = '?section=' + ((sp && sp.get('section')) || 'overview');
++    if (ROLE === 'provider') { var s2 = ds.slice(9); ds = '?section=' + (SEC_TAB[s2] || s2); }
++    [].forEach.call(nav.querySelectorAll('a.ll-tab'), function (a) {
++      var t = parse(a.getAttribute('href')), cur = !!t && t.key === active && (t.key !== CFG.dash || t.search === ds);
++      if (cur) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
++    });
++  }
++  function back() {   // Android back button: close the screen on top, step back inside the tab, return toward Home, else let the app close
++    if (over) return popOver();
++    var f = frames[active], cf = f ? curFile(f) : '';
++    if (cf && !KEY[cf]) { try { PB.call(f.contentWindow.history); return true; } catch (e) {} }
++    if (ROLE === 'provider') {
++      if (active === 'pdash') {
++        var sp = dashSearch(), w = f && f.contentWindow;
++        if (sp && w && w.LLPDash && w.LLPDash.ready) {
++          if (sp.get('c') || sp.get('cu')) { w.LLPDash.go('?section=messages'); sync(); return true; }
++          if ((sp.get('section') || 'overview') !== 'overview') { w.LLPDash.go('?section=overview'); sync(); return true; }
++        }
++        return false;
++      }
++      show(CFG.homeHref); return true;
++    }
++    if (active !== 'home') { show('home.html'); return true; }
++    return false;
++  }
++  function copyTheme(f) {
++    try {
++      var s = document.documentElement, d = f.contentDocument.documentElement;
++      ['data-theme', 'data-theme-pref'].forEach(function (a) { if (s.getAttribute(a)) d.setAttribute(a, s.getAttribute(a)); });
++      d.style.colorScheme = s.style.colorScheme;
++    } catch (e) {}
++  }
++  function size() { var n = document.querySelector('.ll-tabbar'); if (n) document.documentElement.style.setProperty('--sh-tab', n.offsetHeight + 'px'); }
++
++  document.addEventListener('click', function (e) {   // tab bar taps switch frames instead of loading a page
++    if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey) return;
++    var a = e.target && e.target.closest ? e.target.closest('.ll-tabbar a[href]') : null; if (!a) return;
++    if (show(a.getAttribute('href'))) e.preventDefault();
++  }, true);
++  new MutationObserver(function () { if (document.querySelector('.ll-tabbar')) { size(); sync(); } }).observe(document.body, { childList: true });
++  new MutationObserver(function () { Object.keys(frames).forEach(function (k) { copyTheme(frames[k]); }); }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-theme-pref'] });
++  window.addEventListener('resize', size);
++
++  window.LLShell = {
++    show: show, push: push, sync: sync, back: back, popFrom: popFrom,
++    isTab: function (u) { return !!parse(u); },
++    isExit: function (u) { return CFG.exit.test(file(u) || String(u).split(/[?#]/)[0]); }
++  };
++  ensure(CFG.home, CFG.urls[CFG.home]); activate(CFG.home);
++  // warm the other tabs once Home has settled, so the first tap on them is instant
++  frames[CFG.home].addEventListener('load', function () {
++    CFG.warm.forEach(function (w) { setTimeout(function () { ensure(w[0], CFG.urls[w[0]]); }, w[1]); });
++  });
++})();
+diff --git a/page-home.js b/page-home.js
+index 4b84f2a..8f673e1 100644
+--- a/page-home.js
++++ b/page-home.js
+@@ -28,7 +28,7 @@
+   $('searchForm').addEventListener('submit', function (e) {
+     e.preventDefault();
+     var q = ($('q').value || '').trim();
+-    location.href = 'discovery.html' + (q ? '?q=' + encodeURIComponent(q) : '');
++    LL.nav('discovery.html' + (q ? '?q=' + encodeURIComponent(q) : ''));
+   });
+ 
+   if (window.LLSuggest) LLSuggest.attach($('q'), { onPick: function () { $('searchForm').dispatchEvent(new Event('submit', { cancelable: true })); } });
+diff --git a/page-profile.js b/page-profile.js
+index 0ec7303..9f782da 100644
+--- a/page-profile.js
++++ b/page-profile.js
+@@ -43,13 +43,13 @@
+     document.getElementById('pfGear').onclick = function () { go('account'); };
+     document.getElementById('pfCam').onclick = function () { go('photo'); };
+     document.getElementById('pfEdit').onclick = function () { go('edit'); };
+-    document.getElementById('pfAdd').onclick = function () { location.href = 'dashboard.html?section=wallet'; };
+-    document.getElementById('pfBk').onclick = function () { location.href = 'dashboard.html?section=bookings'; };
+-    app.querySelectorAll('[data-go]').forEach(function (b) { b.onclick = function () { var t = b.getAttribute('data-go'); if (t === '#account') go('account'); else location.href = t; }; });
++    document.getElementById('pfAdd').onclick = function () { LL.nav('dashboard.html?section=wallet'); };
++    document.getElementById('pfBk').onclick = function () { LL.nav('dashboard.html?section=bookings'); };
++    app.querySelectorAll('[data-go]').forEach(function (b) { b.onclick = function () { var t = b.getAttribute('data-go'); if (t === '#account') go('account'); else LL.nav(t); }; });
+     document.getElementById('rAcc').onclick = function () { go('account'); };
+     document.getElementById('rPriv').onclick = function () { go('privacy'); };
+     document.getElementById('rApp').onclick = function () { go('appearance'); };
+-    document.getElementById('rOut').onclick = function () { window.LLAuth.signOut().then(function () { location.href = 'index.html'; }); };
++    document.getElementById('rOut').onclick = function () { window.LLAuth.signOut().then(function () { LL.nav('index.html'); }); };
+     try {
+       var uk = user && user.id ? user.id : (P && P.id), kb = 'pf-bal:' + uk, kc = 'pf-cnt:' + uk;
+       var cb = LL.cache.get(kb), cc = LL.cache.get(kc), eb = document.getElementById('pfBal'), ec = document.getElementById('pfCnt');
+@@ -229,7 +229,7 @@
+     document.getElementById('pDel').onclick = function () {
+       LL.confirm({ title: 'Delete your account?', body: 'This permanently removes your account and data. Accounts that have bookings cannot be deleted automatically because booking history must be kept.', confirmText: 'Delete account', danger: true }).then(function (ok) {
+         if (!ok) return;
+-        LLApi.deleteAccount().then(function () { return window.LLAuth.signOut().catch(function () {}); }).then(function () { location.href = 'index.html'; }, function (e) { LL.toast(LLApi.friendly(e), true); });
++        LLApi.deleteAccount().then(function () { return window.LLAuth.signOut().catch(function () {}); }).then(function () { LL.nav('index.html'); }, function (e) { LL.toast(LLApi.friendly(e), true); });
+       });
+     };
+   }
+@@ -258,8 +258,8 @@
+   }
+ 
+   LL.whenAuth(function (profile) {
+-    if (!profile) { location.href = 'signin.html?next=profile.html'; return; }
+-    if (profile.role !== 'customer') { location.href = LL.home(profile.role); return; }
++    if (!profile) { LL.nav('signin.html?next=profile.html'); return; }
++    if (profile.role !== 'customer') { LL.nav(LL.home(profile.role)); return; }
+     P = Object.assign({}, profile);
+     window.LLAuth.getProfile().then(function (r) { user = r.user; if (r.profile) P = Object.assign({}, P, r.profile); render(); });
+     window.addEventListener('popstate', function (e) { show((e.state && e.state.pf) || 'overview'); });
+diff --git a/page-provider-dashboard.js b/page-provider-dashboard.js
+index e3584e1..fe00f4a 100644
+--- a/page-provider-dashboard.js
++++ b/page-provider-dashboard.js
+@@ -96,7 +96,7 @@
+         return LLApi.messages.summaries(convs, me.id).then(function (sum) {
+           var sel = LL.q('c') || convs[0].id, cur = convs.filter(function (c) { return c.id === sel; })[0] || convs[0];
+           var nameOf = function (c) { return (nm[c.customer_id] || {}).display_name || 'Customer'; };
+-          setTimeout(function () { var el = document.getElementById('chatMount'); if (el) LLChat.mount(el, cur.id); }, 0);
++          setTimeout(function () { var el = document.getElementById('chatMount'); if (el) chatH = LLChat.mount(el, cur.id); }, 0);
+           if (window.matchMedia && window.matchMedia('(max-width: 767.98px)').matches) return pmMobile(convs, nm, sum);
+           return '<div class="grid lg:grid-cols-3 gap-4"><div class="space-y-2">' + convs.map(function (c) { var s = sum[c.id] || {}; return '<a href="?section=messages&c=' + LL.esc(c.id) + '" class="flex items-center gap-3 p-3 rounded-2xl border ' + (c.id === cur.id ? 'border-emerald-400 bg-emerald-50/50' : 'border-slate-200 bg-white') + '">' + LL.avatar(nameOf(c), null, 'w-10 h-10') + '<div class="min-w-0 flex-1"><p class="font-extrabold text-sm truncate">' + LL.esc(nameOf(c)) + '</p><p class="text-xs text-slate-500 truncate">' + LL.esc(s.last ? s.last.body : 'No messages yet') + '</p></div>' + (s.unread ? '<span class="bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full">' + s.unread + '</span>' : '') + '</a>'; }).join('') + '</div><div class="lg:col-span-2">' + card('<div class="flex justify-between"><h2 class="font-extrabold">' + LL.esc(nameOf(cur)) + '</h2>' + (cur.request_id ? '<a class="text-xs font-extrabold text-emerald-700" href="provider-request.html?id=' + LL.esc(cur.request_id) + '">View request</a>' : '') + '</div><div id="chatMount"></div>') + '</div></div>';
+         });
+@@ -287,7 +287,7 @@
+       var cur = sel ? convs.filter(function (c) { return c.id === sel; })[0] : null;
+       /* 3) one open conversation: read it and reply */
+       if (cur) {
+-        setTimeout(function () { var el = document.getElementById('chatMount'); if (el) LLChat.mount(el, cur.id); }, 0);
++        setTimeout(function () { var el = document.getElementById('chatMount'); if (el) chatH = LLChat.mount(el, cur.id); }, 0);
+         return '<div class="pm-chat"><div class="pm-chat-h"><a href="?section=messages&cu=' + LL.esc(cur.customer_id) + '" class="pm-back" aria-label="Back to this customer\'s chats">' + PM.back + '</a>' + avOf(cur) +
+           '<div class="pm-chat-t"><b>' + LL.esc(nameOf(cur)) + '</b><em>' + LL.esc(ctx(cur) || 'Customer') + '</em></div>' + (cur.request_id ? '<a class="pm-view" href="provider-request.html?id=' + LL.esc(cur.request_id) + '">View request</a>' : '') + '</div><div class="pm-chat-b"><div id="chatMount"></div></div></div>';
+       }
+@@ -626,6 +626,34 @@
+       S[x]().then(function (h) { if (k) LL.cache.set(k, h); }, function () {}).then(function () { setTimeout(next, 250); });
+     })();
+   }
++  /* Inside the app shell (provider-app.html) the sections switch in place, the same way the customer dashboard does.
++     On its own page nothing changes: this only runs when the page is a tab frame of the shell. */
++  var chatH = null, FR = false; try { FR = window.parent !== window && !!window.parent.LLShell; } catch (e) {}
++  function pgo(search, fromHistory) {
++    var sp = new URLSearchParams(search || ''), next = sp.get('section') || 'overview'; if (!S[next]) next = 'overview';
++    var rel = 'provider-dashboard.html' + (search ? (search.charAt(0) === '?' ? search : '?' + search) : '');
++    if (!fromHistory) {
++      if (next === section && (sp.get('c') || '') === (LL.q('c') || '') && (sp.get('cu') || '') === (LL.q('cu') || '')) { window.scrollTo(0, 0); return; }   // already on this screen
++      try { history.pushState({ ll: 1 }, '', rel); } catch (e) { location.href = rel; return; }
++    }
++    if (chatH && chatH.destroy) { try { chatH.destroy(); } catch (e) {} } chatH = null;
++    section = next; shown = null;
++    if (prov) LL.setHeader(TITLES[section], prov.business_name);
++    if (window.LLTabs) LLTabs.refresh();
++    window.scrollTo(0, 0);
++    render();
++  }
++  if (FR) {
++    document.addEventListener('click', function (e) {
++      if (e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
++      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
++      if (!a || a.target || a.hasAttribute('download') || !window.LLPDash) return;
++      var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (x) { return; }
++      if (u.origin !== location.origin || u.pathname.split('/').pop() !== 'provider-dashboard.html') return;
++      e.preventDefault(); pgo(u.search, false);
++    }, true);
++    window.addEventListener('popstate', function () { if (window.LLPDash) pgo(location.search, true); });
++  }
+   LL.ready(function (profile) {
+     me = profile;
+     if (!S[section]) section = 'overview';
+@@ -638,8 +666,9 @@
+       pvHeader(p, profile);
+       LLApi.messages.unreadTotal(profile.id).then(function (n) { LL.setBadge('navMsgBadge', n); }, function () {});
+       render();
++      if (FR) window.LLPDash = { go: function (q) { pgo(q, false); }, ready: true };   // inside the app shell, sections switch in place
+       (window.requestIdleCallback ? requestIdleCallback : function (f) { setTimeout(f, 1200); })(function () { setTimeout(warmSections, 800); });
+-      if (section !== 'messages' && section !== 'profile' && section !== 'services' && section !== 'wallet') LL.onLive(function () { LL.quiet(app, function () { return render(true); }); });
++      LL.onLive(function () { if (section === 'messages' || section === 'profile' || section === 'services' || section === 'wallet') return; LL.quiet(app, function () { return render(true); }); });
+       setInterval(syncSharing, 30000);
+     }).catch(function (e) { app.innerHTML = LL.error(e.message); });
+   });
+diff --git a/page-provider-profile.js b/page-provider-profile.js
+index 3e74a9c..4a30bd1 100644
+--- a/page-provider-profile.js
++++ b/page-provider-profile.js
+@@ -110,14 +110,14 @@
+     document.getElementById('pcClose').onclick = close;
+     var cb = document.getElementById('pcChat');
+     if (cb) cb.onclick = function () {
+-      if (!me) { location.href = 'signin.html?next=' + encodeURIComponent('provider-profile.html?id=' + id); return; }
++      if (!me) { LL.nav('signin.html?next=' + encodeURIComponent('provider-profile.html?id=' + id)); return; }
+       LL.confirm({ title: 'Start a chat about this product?', body: '₦' + CHAT_FEE + ' will be taken from your wallet and ₦' + CHAT_FEE + ' from the seller. If the seller does not reply within 24 hours, your ₦' + CHAT_FEE + ' is returned. Reopening the same chat later is free.', confirmText: 'Start chat' }).then(function (ok) {
+         if (!ok) return;
+         LL.busy(cb, 'Opening…', function () { return LLApi.messages.openProduct(it.id); }).then(function (convId) {
+-          location.href = 'dashboard.html?section=messages&c=' + encodeURIComponent(convId);
++          LL.nav('dashboard.html?section=messages&c=' + encodeURIComponent(convId));
+         }, function (er) {
+           var m = (er && er.message) || 'Could not open the chat.';
+-          if (/wallet needs at least/i.test(m)) { LL.toast(m, true); setTimeout(function () { location.href = 'dashboard.html?section=wallet'; }, 1600); }
++          if (/wallet needs at least/i.test(m)) { LL.toast(m, true); setTimeout(function () { LL.nav('dashboard.html?section=wallet'); }, 1600); }
+           else LL.toast(m, true);
+         });
+       });
+diff --git a/provider-app.html b/provider-app.html
+new file mode 100644
+index 0000000..74c74c8
+--- /dev/null
++++ b/provider-app.html
+@@ -0,0 +1,34 @@
++<!DOCTYPE html>
++<html lang="en">
++<head>
++  <meta charset="UTF-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
++  <title>LifeLink Provider</title>
++  <meta name="theme-color" content="#F5F8F6">
++  <script>try { var q = new URLSearchParams(location.search); if (q.get('off') === '1') { localStorage.removeItem('ll-shell-p'); location.replace('provider-dashboard.html'); } else { localStorage.setItem("ll-shell-p", "1"); } } catch (e) {}</script>
++  <script src="ll-theme-init.js"></script>
++  <link rel="preconnect" href="https://fonts.googleapis.com">
++  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
++  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
++  <link rel="stylesheet" href="ll-app.css">
++  <style>
++    html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ll-bg, #F5F8F6); }
++    #llFrames { position: fixed; left: 0; right: 0; top: var(--ll-safe-t, 0px); bottom: var(--sh-tab, 64px); }
++    .sh-f { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: var(--ll-bg, #F5F8F6); visibility: hidden; pointer-events: none; }
++    .sh-f.on { visibility: visible; pointer-events: auto; }
++    .sh-over { z-index: 5; visibility: visible; transform: translateX(100%); transition: transform .22s ease; box-shadow: -8px 0 24px rgba(0,0,0,.12); }
++    .sh-over.on { transform: none; }
++    @media (prefers-reduced-motion: reduce) { .sh-over { transition: none; } }
++  </style>
++</head>
++<body data-ll-page="shell" data-ll-role="provider" data-ll-strip>
++  <div id="llFrames"></div>
++  <script src="supabase-config.js"></script>
++  <script src="supabase-client.js"></script>
++  <script src="supabase-auth.js"></script>
++  <script src="ll-api.js"></script>
++  <script src="lifelink.js"></script>
++  <script src="ll-shell.js"></script>
++  <script src="ll-app.js" defer></script>
++</body>
++</html>
+diff --git a/settings.html b/settings.html
+index fe79534..82b54f4 100644
+--- a/settings.html
++++ b/settings.html
+@@ -77,7 +77,7 @@
+       }
+       waitForAuth(function () {
+         window.LLAuth.getProfile().then(function (r) {
+-          if (r.error || !r.profile) { location.href = 'signin.html?next=settings.html'; return; }
++          if (r.error || !r.profile) { LL.nav('signin.html?next=settings.html'); return; }
+           var profile = r.profile;
+           sName.value = profile.full_name || '';
+           sEmail.value = profile.email || (r.user && r.user.email) || '';
+@@ -86,7 +86,7 @@
+           sPhone.value = profile.phone || '';
+           backLink.addEventListener('click', function (e) {
+             e.preventDefault();
+-            location.href = profile.role === 'provider' ? 'provider-dashboard.html' : (profile.role === 'admin' ? 'admin.html' : 'dashboard.html');
++            LL.nav(profile.role === 'provider' ? 'provider-dashboard.html' : (profile.role === 'admin' ? 'admin.html' : 'dashboard.html'));
+           });
+           // Recovery landing: Supabase redirects here with ?type=recovery.
+           if (new URLSearchParams(location.search).get('type') === 'recovery') {
+@@ -125,12 +125,12 @@
+             }).catch(function (err) { toast((err && err.message) || 'Password update failed.'); });
+           };
+           signOut.onclick = function () {
+-            window.LLAuth.signOut().then(function () { location.href = 'index.html'; });
++            window.LLAuth.signOut().then(function () { LL.nav('index.html'); });
+           };
+           delAcct.onclick = function () {
+             LL.confirm({ title: 'Delete your account?', body: 'This permanently removes your account and data. Accounts that have bookings cannot be deleted automatically because booking history must be kept.', confirmText: 'Delete account', danger: true }).then(function (ok) {
+               if (!ok) return;
+-              LLApi.deleteAccount().then(function () { return window.LLAuth.signOut().catch(function () {}); }).then(function () { location.href = 'index.html'; }, function (e) { LL.toast(LLApi.friendly(e), true); });
++              LLApi.deleteAccount().then(function () { return window.LLAuth.signOut().catch(function () {}); }).then(function () { LL.nav('index.html'); }, function (e) { LL.toast(LLApi.friendly(e), true); });
+             });
+           };
+         });

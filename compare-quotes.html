@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Compare quotes - LIFELINK</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+  colors: { emerald: { 50:'#ecfdf5', 100:'#d1fae5', 500:'#10b981', 600:'#059669', 700:'#047857' },
+            charcoal: { 50:'#f8fafc', 100:'#f1f5f9', 200:'#e2e8f0', 300:'#cbd5e1', 400:'#94a3b8', 500:'#64748b', 600:'#475569', 700:'#334155', 800:'#1e293b', 900:'#0f172a' } },
+  fontFamily: { sans: ['Plus Jakarta Sans','sans-serif'] } } } }
+  </script>
+  <style>
+    body { background-color: #F8FAFC; color: #0F172A; font-family: 'Plus Jakarta Sans', sans-serif; }
+    .nav-item-active { background-color: #ECFDF5; color: #047857; font-weight: 800; }
+    .field { width: 100%; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 1rem; padding: .75rem 1rem; font-size: .875rem; font-weight: 600; color: #0f172a; outline: none; }
+    .field:focus { border-color: #059669; background: #fff; }
+    .lbl { display: block; font-size: .75rem; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: .05em; margin-bottom: .375rem; }
+  </style>
+  <style>
+    #app { max-width: 640px !important; }
+    .cq-card { background: var(--ll-surface, #fff); border: 1px solid var(--ll-border, #dfe7e3); border-radius: 20px; padding: 16px; animation: cqIn .4s cubic-bezier(.2,.8,.2,1) both; }
+    @keyframes cqIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    .cq-req h1 { color: var(--ll-text) !important; }
+    .cq-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 6px; }
+    .cq-hd h2 { margin: 0; font-size: 17px; font-weight: 800; color: var(--ll-text); }
+    .cq-hd label { font-size: 12.5px; font-weight: 700; color: var(--ll-text-2, #64748b); }
+    .cq-hd select { margin-left: 4px; background: var(--ll-surface, #fff); color: var(--ll-text); border: 1px solid var(--ll-border, #dfe7e3); border-radius: 10px; padding: 6px 8px; font: inherit; font-size: 12.5px; font-weight: 700; }
+    .cq-list { display: grid; gap: 14px; }
+    .cq-q.acc { border-color: var(--ll-primary, #07865f); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ll-primary) 12%, transparent); }
+    .cq-pv { display: flex; align-items: center; gap: 12px; }
+    .cq-pn { display: block; font-size: 16px; font-weight: 800; color: var(--ll-text); text-decoration: none; }
+    .cq-ps { margin: 2px 0 0; font-size: 13px; font-weight: 600; color: var(--ll-text-2, #64748b); }
+    .cq-box { display: flex; gap: 12px; align-items: center; margin-top: 14px; padding: 14px; border-radius: 16px; background: color-mix(in srgb, var(--ll-primary) 9%, transparent); border: 1px solid color-mix(in srgb, var(--ll-primary) 28%, transparent); }
+    .cq-box svg { width: 28px; height: 28px; color: var(--ll-primary, #07865f); flex: none; }
+    .cq-box small { display: block; font-size: 12.5px; font-weight: 700; color: var(--ll-text-2, #64748b); }
+    .cq-box b { display: block; font-size: 24px; font-weight: 800; color: var(--ll-primary, #07865f); line-height: 1.2; }
+    .cq-box em { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--ll-text-2, #64748b); }
+    .cq-msg { margin: 12px 0 0; padding: 12px; border-radius: 14px; background: var(--ll-surface-2, #eef3f0); font-size: 14px; line-height: 1.5; color: var(--ll-text); white-space: pre-wrap; }
+    .cq-fee { margin: 12px 0 0; font-size: 12.5px; line-height: 1.5; font-weight: 600; color: var(--ll-text-2, #64748b); }
+    .cq-act { display: grid; gap: 10px; margin-top: 14px; }
+    .cq-go { display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; background: var(--ll-primary, #07865f); color: #fff; font: inherit; font-size: 15.5px; font-weight: 800; padding: 15px; border-radius: 15px; cursor: pointer; box-shadow: 0 8px 20px color-mix(in srgb, var(--ll-primary) 28%, transparent); transition: transform .15s; }
+    .cq-go svg { width: 18px; height: 18px; } .cq-go:active { transform: scale(.98); }
+    .cq-sec { border: 1px solid var(--ll-border, #dfe7e3); background: transparent; color: var(--ll-text); font: inherit; font-size: 14.5px; font-weight: 700; padding: 13px; border-radius: 15px; cursor: pointer; }
+    .cq-ok { text-align: center; font-weight: 800; color: var(--ll-primary, #07865f); }
+    @media (max-width: 767px) { #app { padding-top: calc(14px + env(safe-area-inset-top, 0px)) !important; padding-bottom: 96px !important; } }
+    @media (prefers-reduced-motion: reduce) { .cq-card { animation: none !important; } }
+  </style>
+  <script src="ll-theme-init.js"></script>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="LifeLink">
+  <link rel="stylesheet" href="ll-app.css">
+</head>
+<body class="min-h-screen flex flex-col bg-slate-50 antialiased selection:bg-emerald-100 selection:text-emerald-800" data-ll-page="compare-quotes" data-ll-role="customer">
+<header class="bg-white border-b border-slate-200/80 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-4">
+        <a href="dashboard.html?section=requests" class="p-2 text-slate-500 hover:text-emerald-600 hover:bg-slate-50 rounded-xl transition" title="Back to requests" id="backLink"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg></a>
+        <div class="flex items-center gap-2.5 border-l border-slate-200 pl-4">
+          <a href="index.html" aria-label="LifeLink home" title="Go to LifeLink homepage"><img src="images/lifelink-logo.png" alt="LifeLink" class="h-10 w-auto object-contain"></a>
+          <span class="text-[10px] font-bold text-slate-400 tracking-wider uppercase">Quotes</span>
+        </div>
+      </div>
+      <div class="flex items-center gap-3"><div data-ll-bell></div><div data-ll-account class="flex items-center gap-2"></div></div>
+    </div>
+  </header>
+  <main id="app" class="flex-grow max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 space-y-5"></main>
+<script src="supabase-config.js"></script>
+<script src="supabase-client.js"></script>
+<script src="supabase-auth.js"></script>
+<script src="ll-api.js"></script>
+<script src="lifelink.js"></script>
+<script src="ll-chat.js"></script>
+<script src="page-compare-quotes.js"></script>
+<script src="ll-app.js" defer></script>
+</body>
+</html>
